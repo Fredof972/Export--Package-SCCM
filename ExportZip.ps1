@@ -78,38 +78,34 @@ function Sanitize([string]$s) {
   ($s.ToCharArray() | ForEach-Object { if ($bad -contains $_) { '_' } else { $_ } }) -join ''
 }
 
-# ---------- 5) Export : 1 ZIP final par appli ----------
+# 5) Export : 1 ZIP final par appli
+if (-not (Test-Path -LiteralPath $OutputPath)) { New-Item -ItemType Directory -Path $OutputPath | Out-Null }
+
+function Sanitize([string]$s) {
+  if ([string]::IsNullOrWhiteSpace($s)) { return "_empty" }
+  $bad = [IO.Path]::GetInvalidFileNameChars() + '\','/',';',':','*','?','"','<','>','|'
+  ($s.ToCharArray() | ForEach-Object { if ($bad -contains $_) { '_' } else { $_ } }) -join ''
+}
+
 foreach ($app in $toExport) {
   $name     = $app.LocalizedDisplayName
   $safe     = Sanitize $name
-
-  # Dossier de travail OutputPath\<Nom>\
-  $workDir  = Join-Path $fsOutput $safe
-
-  # Nom du ZIP paramètres attendu par Export-CMApplication
+  $workDir  = Join-Path $OutputPath $safe
   $paramZipName = "$safe.zip"
-
-  # ZIP final OutputPath\<Nom>.zip (avec protection collision)
-  $finalZipBase = Join-Path $fsOutput "$safe.zip"
-  $finalZip     = $finalZipBase
-  if (Test-Path -LiteralPath $finalZip) {
-    # Suffixe avec CI_ID si un zip du même nom existe déjà
-    $finalZip = Join-Path $fsOutput ("{0}__{1}.zip" -f $safe, $app.CI_ID)
-  }
+  $finalZip = Join-Path $OutputPath "$safe.zip"
 
   try {
-    # Reset du workDir
     if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
     New-Item -ItemType Directory -Path $workDir | Out-Null
 
-    # 1) Export natif dans le dossier de travail -> crée "<Nom>.zip" + "<Nom>_files\"
+    # 1) Export natif dans le dossier de travail (OK sans FileSystem::)
     Export-CMApplication -InputObject $app -Path $workDir -FileName $paramZipName -Force -ErrorAction Stop
 
-    # 2) Zipper TOUT le contenu du workDir en un seul zip final "<Output>\<Nom>.zip"
+    # 2) Zipper tout le dossier de travail en un seul zip final
     if (Test-Path -LiteralPath $finalZip) { Remove-Item -LiteralPath $finalZip -Force }
     Compress-Archive -Path (Join-Path $workDir '*') -DestinationPath $finalZip -Force
 
-    # 3) Nettoyage : ne garder que le zip final
+    # 3) Nettoyage du dossier de travail
     Remove-Item -LiteralPath $workDir -Recurse -Force
 
     Write-Host "[OK] $name -> $finalZip" -ForegroundColor Green
@@ -120,6 +116,8 @@ foreach ($app in $toExport) {
   }
 }
 
+Set-Location C:\
+Write-Host "Terminé. Exports: $OutputPath" -ForegroundColor Cyan
 # ---------- Fin ----------
 Set-Location C:\
 Write-Host "Terminé. Exports: $fsOutput" -ForegroundColor Cyan
