@@ -13,29 +13,31 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
+$ProgressPreference    = 'SilentlyContinue'
 
-# -- 1) Liste (forcer FileSystem pour éviter CMSite:) --
+# ---------- 1) Lire la liste ----------
 if (-not (Test-Path -LiteralPath $ListPath)) { throw "ListPath introuvable: $ListPath" }
 $fsListPath = "Microsoft.PowerShell.Core\FileSystem::" + (Resolve-Path -LiteralPath $ListPath).Path
+
 $wanted = Get-Content -LiteralPath $fsListPath |
           ForEach-Object { $_.Trim() } |
           Where-Object { $_ -and -not $_.StartsWith('#') } |
           Select-Object -Unique
 if (-not $wanted) { throw "La liste est vide: $ListPath" }
 
-# -- 2) Connexion MECM --
+# ---------- 2) Connexion MECM ----------
 Import-Module ConfigurationManager -ErrorAction Stop
 if (-not (Get-PSDrive -Name $SiteCode -ErrorAction SilentlyContinue)) {
   New-PSDrive -Name $SiteCode -PSProvider CMSite -Root $SiteServer | Out-Null
 }
 Set-Location ("{0}:" -f $SiteCode)
 
-# -- 3) Output --
+# ---------- 3) Préparer l'Output ----------
 if (-not (Test-Path -LiteralPath $OutputPath)) { New-Item -ItemType Directory -Path $OutputPath | Out-Null }
 
-# -- 4) Sélection d’apps --
+# ---------- 4) Sélection des applications ----------
 $all = Get-CMApplication -Fast
+
 if ($ExactMatch) {
   $set = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
   $wanted | ForEach-Object { [void]$set.Add($_) }
@@ -50,28 +52,30 @@ if ($ExactMatch) {
     return $false
   }
 }
+
 if (-not $toExport) {
   Write-Warning "Aucune application ne correspond à la liste."
   Set-Location C:\
   return
 }
 
+# ---------- Helpers ----------
 function Sanitize([string]$s) {
   if ([string]::IsNullOrWhiteSpace($s)) { return "_empty" }
   $bad = [IO.Path]::GetInvalidFileNameChars() + '\','/',';',':','*','?','"','<','>','|'
   ($s.ToCharArray() | ForEach-Object { if ($bad -contains $_) { '_' } else { $_ } }) -join ''
 }
 
-# -- 5) Export : dossier <Nom>\ -> zip final <Nom>.zip -> cleanup --
+# ---------- 5) Export : dossier <Nom>\ -> zip final <Nom>.zip -> cleanup ----------
 foreach ($app in $toExport) {
   $name  = $app.LocalizedDisplayName
   $safe  = Sanitize $name
 
-  $workDir   = Join-Path $OutputPath $safe             # ex: D:\FF\Export\Chrome\
-  $fsWorkDir = "Microsoft.PowerShell.Core\FileSystem::" + $workDir  # impératif pour Export-CMApplication
-  $paramZipName = "$safe.zip"                           # zip “paramètres” généré par MECM
+  # Dossier de travail : <OutputPath>\<Nom>\
+  $workDir      = Join-Path $OutputPath $safe
+  $paramZipName = "$safe.zip"                         # zip “paramètres” produit par MECM
 
-  # zip final: gérer collision si même nom déjà présent
+  # Zip final (gère collision par suffixe CI_ID si nécessaire)
   $finalZip = Join-Path $OutputPath "$safe.zip"
   if (Test-Path -LiteralPath $finalZip) {
     $finalZip = Join-Path $OutputPath ("{0}__{1}.zip" -f $safe, $app.CI_ID)
@@ -81,17 +85,21 @@ foreach ($app in $toExport) {
     if (Test-Path -LiteralPath $workDir) { Remove-Item -LiteralPath $workDir -Recurse -Force }
     New-Item -ItemType Directory -Path $workDir | Out-Null
 
-    # 1) Export MECM dans le dossier de travail (forcer provider FileSystem)
-    Export-CMApplication -InputObject $app -Path $fsWorkDir -FileName $paramZipName -Force -ErrorAction Stop
-    # Résultat attendu dans $workDir :
-    #   <Nom>.zip
-    #   <Nom>_files\
+    # --- CONTournement critique ---
+    # Sortir temporairement du provider CMSite pour appeler Export-CMApplication
+    Push-Location C:\
 
-    # 2) Zipper tout le contenu du dossier de travail en un seul zip final
+    # 1) Export MECM dans le dossier de travail (hors CMSite => plus de conflit -Path)
+    Export-CMApplication -InputObject $app -Path $workDir -FileName $paramZipName -Force -ErrorAction Stop
+
+    # Revenir sur le provider MECM pour la suite si besoin
+    Pop-Location
+
+    # 2) Zipper tout le contenu du dossier de travail en un unique zip final
     if (Test-Path -LiteralPath $finalZip) { Remove-Item -LiteralPath $finalZip -Force }
     Compress-Archive -Path (Join-Path $workDir '*') -DestinationPath $finalZip -Force
 
-    # 3) Nettoyage
+    # 3) Nettoyage : supprimer le dossier de travail
     Remove-Item -LiteralPath $workDir -Recurse -Force
 
     Write-Host "[OK] $name -> $finalZip" -ForegroundColor Green
@@ -102,5 +110,6 @@ foreach ($app in $toExport) {
   }
 }
 
+# ---------- Fin ----------
 Set-Location C:\
 Write-Host "Terminé. Exports: $OutputPath" -ForegroundColor Cyan
