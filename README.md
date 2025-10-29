@@ -1,12 +1,12 @@
 # Export--Package-SCCM
-# Applications modifiées depuis le 1er septembre 2025
-.\Export-CMContent.ps1 -SiteServer "CM01.contoso.com" -SiteCode "P01" `
-  -OutputRoot "D:\Exports\SCCM" -ObjectType Application -ModifiedAfter "2025-09-01"
+# .\apps.txt  (exemple)
+# 7-Zip
+# Google Chrome
+# Notepad++
 
-# Deux packages par ID + ZIP par objet
-.\Export-CMContent.ps1 -SiteServer "CM01.contoso.com" -SiteCode "P01" `
-  -OutputRoot "\\filesrv\backup\SCCM" -ObjectType Package -Ids "P0100123","P0100ABC" -ZipPerObject
+.\Export-CMApps-FromList.ps1 `
+  -SiteServer "CM01.contoso.com" -SiteCode "P01" `
+  -OutputPath "D:\RepoExports" `
+  -ListPath ".\apps.txt" `
+  -ExactMatch   # retire ce switch si tu veux un LIKE *nom*
 
-# Filtre par nom + DPs (best-effort) + parallélisme
-.\Export-CMContent.ps1 -SiteServer "CM01" -SiteCode "P01" `
-  -OutputRoot "D:\Exports" -ObjectType Both -NameLike "*7-Zip*","*Notepad++*" -IncludeDPs -MaxConcurrency 6
