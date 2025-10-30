@@ -1,0 +1,18 @@
+# 1) Logging
+$log = New-Log -Path 'D:\Logs\export.log'
+Write-Log -Message 'Démarrage export' -Level INFO  -LogPath $log -Component 'ExportJob'
+Write-Log -Message 'Attention : source lente' -Level WARN -LogPath $log
+Write-Log -Message 'Erreur fatale' -Level ERROR -LogPath $log
+
+# 2) Hash manifest (SHA-256)
+$manif = New-HashManifest -RootPath 'D:\Packages\AppA' -Recurse
+$result = Test-HashManifest -RootPath 'D:\Packages\AppA' -ManifestCsv $manif
+if (-not $result.IsOK) {
+  Write-Host "Mismatchs: $($result.HashMismatch.Count), Missing: $($result.MissingFiles.Count), Extra: $($result.ExtraFiles.Count)" -ForegroundColor Yellow
+}
+
+# 3) ZIP : compresser un dossier
+Compress-Directory -SourceDir 'D:\Packages\AppA' -DestinationZip 'D:\Archives\AppA.zip' -Force
+
+# 4) ZIP : extraire
+Expand-Zip -ZipPath 'D:\Archives\AppA.zip' -DestinationDir 'D:\Restore\AppA' -Force
