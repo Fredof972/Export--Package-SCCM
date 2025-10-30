@@ -19,84 +19,130 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
 
-# ---------- 1) Charger la liste ----------
+$ProgressPreference = 'SilentlyContinue'  # évite le rendu lent de la barre de progression
+
+ 
+
+# 1) Lire la liste AVANT d'aller sur le drive du site (FileSystem forcé)
+
 if (-not (Test-Path -LiteralPath $ListPath)) { throw "ListPath introuvable: $ListPath" }
-$wanted = Get-Content -LiteralPath $ListPath |
+
+$fsListPath = "Microsoft.PowerShell.Core\FileSystem::" + (Resolve-Path -LiteralPath $ListPath).Path
+
+$wanted = Get-Content -LiteralPath $fsListPath |
+
           ForEach-Object { $_.Trim() } |
+
           Where-Object { $_ -and -not $_.StartsWith('#') } |
+
           Select-Object -Unique
+
 if (-not $wanted) { throw "La liste est vide: $ListPath" }
 
-# ---------- 2) Connexion MECM ----------
+ 
+
+# 2) Connexion CM
+
 Import-Module ConfigurationManager -ErrorAction Stop
+
 if (-not (Get-PSDrive -Name $SiteCode -ErrorAction SilentlyContinue)) {
-    New-PSDrive -Name $SiteCode -PSProvider CMSite -Root $SiteServer | Out-Null
+
+  New-PSDrive -Name $SiteCode -PSProvider CMSite -Root $SiteServer | Out-Null
+
 }
+
 Set-Location ("{0}:" -f $SiteCode)
 
-# ---------- 3) Vérif Output ----------
-if (-not (Test-Path -LiteralPath $OutputPath)) {
-    New-Item -ItemType Directory -Path $OutputPath | Out-Null
+ 
+
+# 3) Préparer sortie
+
+if (-not (Test-Path -LiteralPath $OutputPath)) { New-Item -ItemType Directory -Path $OutputPath | Out-Null }
+
+ 
+
+# 4) Récupérer TOUTES les applis UNE FOIS (rapide) puis filtrer en mémoire
+
+$all = Get-CMApplication -Fast
+
+ 
+
+if ($ExactMatch) {
+
+  # table de hachage pour lookup O(1)
+
+  $set = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+
+  $wanted | ForEach-Object { [void]$set.Add($_) }
+
+  $toExport = $all | Where-Object { $set.Contains($_.LocalizedDisplayName) }
+
 }
 
-# ---------- 4) Filtrage ----------
-$all = Get-CMApplication -Fast
-if ($ExactMatch) {
-    $set = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    $wanted | ForEach-Object { [void]$set.Add($_) }
-    $toExport = $all | Where-Object { $set.Contains($_.LocalizedDisplayName) }
-} else {
-    $regexes = $wanted | ForEach-Object {
-        New-Object System.Text.RegularExpressions.Regex([Regex]::Escape($_), 'IgnoreCase')
-    }
-    $toExport = $all | Where-Object {
-        $n = $_.LocalizedDisplayName
-        foreach ($rx in $regexes) { if ($rx.IsMatch($n)) { return $true } }
-        return $false
-    }
+else {
+
+  # LIKE (multi-modèles) – on compile des regex une fois
+
+  $regexes = $wanted | ForEach-Object {
+
+    # équivaut à *mot* insensible à la casse
+
+    New-Object System.Text.RegularExpressions.Regex([Regex]::Escape($_), 'IgnoreCase')
+
+  }
+
+  $toExport = $all | Where-Object {
+
+    $name = $_.LocalizedDisplayName
+
+    foreach ($rx in $regexes) { if ($rx.IsMatch($name)) { return $true } }
+
+    return $false
+
+  }
+
 }
+
+ 
 
 if (-not $toExport) {
-    Write-Warning "Aucune application ne correspond à la liste."
-    Set-Location C:\
-    return
+
+  Write-Warning "Aucune application ne correspond à la liste."
+
+  Set-Location C:\
+
+  return
+
 }
 
-# ---------- Helper ----------
-function Sanitize([string]$s) {
-    if ([string]::IsNullOrWhiteSpace($s)) { return "_empty" }
-    $bad = [IO.Path]::GetInvalidFileNameChars() + '\','/',';',':','*','?','"','<','>','|'
-    ($s.ToCharArray() | ForEach-Object { if ($bad -contains $_) { '_' } else { $_ } }) -join ''
-}
+ 
 
-# ---------- 5) Export par application ----------
+# 5) Export en chaîne (simple, stable)
+
 foreach ($app in $toExport) {
-    $name = $app.LocalizedDisplayName
-    $safe = Sanitize $name
 
-    # Créer un dossier dédié pour cette app
-    $appExportDir = Join-Path $OutputPath $safe
-    if (Test-Path -LiteralPath $appExportDir) { Remove-Item -LiteralPath $appExportDir -Recurse -Force }
-    New-Item -ItemType Directory -Path $appExportDir | Out-Null
+  $safe = ($app.LocalizedDisplayName -replace '[\\/:*?"<>|;]', '_')
 
-    $zipName = "$safe.zip"
+  $zip  = "{0}__{1}.zip" -f $safe, $app.CI_ID
 
-    try {
-        # ⚠️ Sort temporairement du provider CMSite pour éviter le conflit de -Path
-        Push-Location C:\
+  try {
 
-        Export-CMApplication -InputObject $app -Path $appExportDir -FileName $zipName -Force -ErrorAction Stop
+    Export-CMApplication -inputObject $app -Path (Join-path $OutputPath $zip) -Force
 
-        Pop-Location
+    Write-Host "[OK] $($app.LocalizedDisplayName)" -ForegroundColor Green
 
-        Write-Host "[OK] $name exporté dans $appExportDir" -ForegroundColor Green
-    }
-    catch {
-        Write-Warning "[KO] $name : $($_.Exception.Message)"
-        try { if (Test-Path -LiteralPath $appExportDir) { Remove-Item -LiteralPath $appExportDir -Recurse -Force } } catch {}
-    }
+  } catch {
+
+    Write-Warning "[KO] $($app.LocalizedDisplayName) : $($_.Exception.Message)"
+
+  }
+
 }
+
+ 
 
 Set-Location C:\
-Write-Host "Terminé. Exports enregistrés dans : $OutputPath" -ForegroundColor Cyan
+
+Write-Host "Terminé. Exports: $OutputPath" -ForegroundColor Cyan
