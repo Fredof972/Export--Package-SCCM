@@ -1,8 +1,8 @@
 # Export--Package-SCCM
-# .\apps.txt  (exemple)
-# 7-Zip
-# Google Chrome
-# Notepad++
+.\apps.txt  (exemple)
+7-Zip
+Google Chrome
+Notepad++
 
 .\Export-CMApps-FromList.ps1 `
   -SiteServer "CM01.contoso.com" -SiteCode "P01" `
