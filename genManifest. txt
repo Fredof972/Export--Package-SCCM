@@ -1,0 +1,3 @@
+# $appDir = "<OutputPath>\<LocalizedDisplayName>"
+$xmlPath = New-HashManifestXml -RootPath $appDir -Recurse -ApplicationName $app.LocalizedDisplayName
+Write-Host "[HASH-XML] Manifest : $xmlPath" -ForegroundColor Cyan
