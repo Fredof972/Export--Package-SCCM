@@ -1,3 +1,7 @@
+# À personnaliser :
+# Chemin du CSV exporté (depuis l'autre SCCM)
+$CsvPath = "C:\Temp\Export-SUG.csv"
+# SUG cible (existant ou à créer)
 $SUGName = "NOUVEAU-SUG"
 
 # Charger les updates à importer
