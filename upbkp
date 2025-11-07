@@ -1,0 +1,11 @@
+Import-Module ($env:SMS_ADMIN_UI_PATH.Substring(0,$env:SMS_ADMIN_UI_PATH.Length-5) + 'ConfigurationManager.psd1')
+cd $SiteCode":"
+
+# Récupère tous les groupes de mises à jour
+$UpdateGroups = Get-CMSoftwareUpdateGroup
+
+# Exporte chaque groupe en CSV
+foreach ($Group in $UpdateGroups) {
+    $displayName = $Group.LocalizedDisplayName
+    Get-CMSoftwareUpdate -UpdateGroupName $displayName | Export-Csv "D:\Export\$displayName.csv" -NoTypeInformation
+}
