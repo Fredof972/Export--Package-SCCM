@@ -4,7 +4,8 @@ Set-Location "<SiteCode>:"
 
 # Paramètres
 $sugName = "NomDeTaSUG"
-$exportPath = "C:\SCCM-Export\$sugName"
+$safeSugName = $sugName -replace '[\[\]\*\?\/\\\:\<\>\|"]', '_'  # Ajoute cette ligne
+$exportPath = "C:\SCCM-Export\$safeSugName"
 New-Item -Path $exportPath -ItemType Directory -Force
 
 # Extraction des updates de la SUG
